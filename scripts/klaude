@@ -1,16 +1,33 @@
 #!/usr/bin/env bash
-# kc — Korean Claude tmux launcher.
+# klaude — k-laude tmux launcher.
 # Spawns a tmux session with a Korean input pane on the left and `claude` on the right.
-# Korean lines typed in the left pane are translated via macOS on-device translation
-# and injected into the right pane as English keystrokes.
+# Korean lines typed in the left pane are translated via Apple FoundationModels
+# (on-device LLM) and injected into the right pane as English keystrokes.
 
 set -euo pipefail
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SESSION_PREFIX="${KC_SESSION_PREFIX:-kc}"
+# Resolve symlink chain so SCRIPT_DIR points to the real installation directory
+# regardless of how the user invoked this script (PATH symlink, alias, etc.).
+resolve_symlink() {
+  local target="$1"
+  while [ -L "$target" ]; do
+    local link
+    link="$(readlink "$target")"
+    case "$link" in
+      /*) target="$link" ;;
+      *)  target="$(dirname "$target")/$link" ;;
+    esac
+  done
+  printf '%s' "$target"
+}
+SELF="$(resolve_symlink "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$( cd "$( dirname "$SELF" )" && pwd )"
+
+SESSION_PREFIX="${KLAUDE_SESSION_PREFIX:-${KC_SESSION_PREFIX:-klaude}}"
 SESSION="${SESSION_PREFIX}-$$"
-CLAUDE_BIN="${KC_CLAUDE_BIN:-claude}"
-INPUT_WIDTH="${KC_INPUT_WIDTH:-30}"
+CLAUDE_BIN="${KLAUDE_CLAUDE_BIN:-${KC_CLAUDE_BIN:-claude}}"
+INPUT_WIDTH="${KLAUDE_INPUT_WIDTH:-${KC_INPUT_WIDTH:-30}}"
+RESPONSE_LANG="${KLAUDE_RESPONSE_LANG:-${KC_RESPONSE_LANG:-ko}}"
 
 err()  { printf '\033[1;31m%s\033[0m\n' "$*" >&2; }
 info() { printf '\033[1;36m%s\033[0m\n' "$*"; }
@@ -22,24 +39,25 @@ require() {
 require tmux
 require python3
 command -v "$CLAUDE_BIN" >/dev/null 2>&1 || {
-  err "claude CLI not found in PATH (set KC_CLAUDE_BIN to override)"; exit 127;
+  err "claude CLI not found in PATH (set KLAUDE_CLAUDE_BIN to override)"; exit 127;
 }
 
 CLAUDE_FULL="$(command -v "$CLAUDE_BIN")"
 REPL_FULL="$SCRIPT_DIR/kc-repl.py"
 TRANSLATE_BIN="$SCRIPT_DIR/translate-bin"
+SETUP_SH="$SCRIPT_DIR/setup-deps.sh"
 
-# Auto-build the translation binary if missing or stale.
 if [[ ! -x "$TRANSLATE_BIN" || "$SCRIPT_DIR/translate-bin.swift" -nt "$TRANSLATE_BIN" ]]; then
   info "translate-bin 컴파일 중..."
-  if ! bash "$SCRIPT_DIR/setup-deps.sh" >/dev/null 2>&1; then
-    err "Swift 바이너리 컴파일 실패. 수동 실행: $SCRIPT_DIR/setup-deps.sh"
+  if [[ ! -f "$SETUP_SH" ]]; then
+    err "setup-deps.sh 를 찾을 수 없습니다 (resolved SCRIPT_DIR=$SCRIPT_DIR)"
+    exit 1
+  fi
+  if ! bash "$SETUP_SH"; then
+    err "Swift 바이너리 컴파일 실패. 수동 실행: bash $SETUP_SH"
     exit 1
   fi
 fi
-
-# Response language preference. 'ko' = Korean output (readable), 'en' = English output (max token savings), 'auto' = no override.
-RESPONSE_LANG="${KC_RESPONSE_LANG:-ko}"
 
 cleanup() {
   tmux kill-session -t "=$SESSION" 2>/dev/null || true

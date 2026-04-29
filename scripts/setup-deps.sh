@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# setup-deps.sh — auto-installer for ko-translator dependencies.
+# setup-deps.sh — auto-installer for k-laude dependencies.
 # - Compiles the Swift translation binary (FoundationModels)
-# - Creates a kc symlink in ~/.local/bin (best-effort)
+# - Creates a `klaude` symlink in ~/.local/bin (best-effort)
+# - Cleans up any pre-0.3 `kc` symlink that pointed here
 # Idempotent: safe to run multiple times. Skips work that's already done.
 
 set -uo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BIN_TARGET="${KC_BIN_DIR:-$HOME/.local/bin}"
+BIN_TARGET="${KLAUDE_BIN_DIR:-${KC_BIN_DIR:-$HOME/.local/bin}}"
 SOURCE="$SCRIPT_DIR/translate-bin.swift"
 BINARY="$SCRIPT_DIR/translate-bin"
-KC_LINK="$BIN_TARGET/kc"
+KLAUDE_LINK="$BIN_TARGET/klaude"
+LEGACY_KC_LINK="$BIN_TARGET/kc"
 
 ok()    { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33m!\033[0m %s\n' "$*"; }
@@ -52,25 +54,35 @@ fi
 
 chmod +x "$SCRIPT_DIR/translate.sh" \
          "$SCRIPT_DIR/kc-repl.py" \
-         "$SCRIPT_DIR/kc" 2>/dev/null || true
+         "$SCRIPT_DIR/klaude" 2>/dev/null || true
 
 if [[ ! -d "$BIN_TARGET" ]]; then
   mkdir -p "$BIN_TARGET" 2>/dev/null || true
 fi
 
 if [[ -d "$BIN_TARGET" ]]; then
-  if [[ -L "$KC_LINK" ]]; then
-    if [[ "$(readlink "$KC_LINK")" == "$SCRIPT_DIR/kc" ]]; then
-      ok "kc symlink already points here"
+  if [[ -L "$KLAUDE_LINK" ]]; then
+    current_target="$(readlink "$KLAUDE_LINK")"
+    if [[ "$current_target" == "$SCRIPT_DIR/klaude" ]]; then
+      ok "klaude symlink already points here"
     else
-      ln -sf "$SCRIPT_DIR/kc" "$KC_LINK"
-      ok "Updated kc symlink → $SCRIPT_DIR/kc"
+      ln -sf "$SCRIPT_DIR/klaude" "$KLAUDE_LINK"
+      ok "Updated klaude symlink → $SCRIPT_DIR/klaude"
     fi
-  elif [[ ! -e "$KC_LINK" ]]; then
-    ln -sf "$SCRIPT_DIR/kc" "$KC_LINK"
-    ok "Created kc symlink at $KC_LINK"
+  elif [[ ! -e "$KLAUDE_LINK" ]]; then
+    ln -sf "$SCRIPT_DIR/klaude" "$KLAUDE_LINK"
+    ok "Created klaude symlink at $KLAUDE_LINK"
   else
-    warn "$KC_LINK exists and is not a symlink — leaving it alone"
+    warn "$KLAUDE_LINK exists and is not a symlink — leaving it alone"
+  fi
+
+  if [[ -L "$LEGACY_KC_LINK" ]]; then
+    legacy_target="$(readlink "$LEGACY_KC_LINK")"
+    case "$legacy_target" in
+      */k-laude/scripts/kc|*/k-laude/scripts/klaude|*/claude-code-ko-translator/scripts/kc)
+        rm -f "$LEGACY_KC_LINK"
+        ok "Removed legacy kc symlink (renamed to klaude)" ;;
+    esac
   fi
 
   case ":$PATH:" in
@@ -88,4 +100,4 @@ else
 fi
 
 echo
-ok "Setup complete."
+ok "Setup complete. Run: klaude"

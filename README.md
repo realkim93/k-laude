@@ -20,10 +20,10 @@ ko> 인증 모듈 리팩토링 계획 세워줘
 
 ## 두 가지 사용 방식
 
-### 1. `kc` — tmux 분할 (권장, 강제 자동 번역)
+### 1. `klaude` — tmux 분할 (권장, 강제 자동 번역)
 
 ```bash
-$ kc
+$ klaude
 ```
 
 ```
@@ -103,10 +103,10 @@ echo "안녕하세요, 코드 한 줄만 짜주세요" | ./scripts/translate.sh
 
 | 변수 | 기본값 | 용도 |
 |---|---|---|
-| `KC_RESPONSE_LANG` | `ko` | claude 응답 언어 (`ko` / `en` / `auto`) |
-| `KC_CLAUDE_BIN` | `claude` | claude CLI 경로 |
-| `KC_INPUT_WIDTH` | `30` | 왼쪽 입력 패인 너비 (%) |
-| `KC_BIN_DIR` | `~/.local/bin` | `kc` 심볼릭 링크 위치 |
+| `KLAUDE_RESPONSE_LANG` | `ko` | claude 응답 언어 (`ko` / `en` / `auto`) |
+| `KLAUDE_CLAUDE_BIN` | `claude` | claude CLI 경로 |
+| `KLAUDE_INPUT_WIDTH` | `30` | 왼쪽 입력 패인 너비 (%) |
+| `KLAUDE_BIN_DIR` | `~/.local/bin` | `klaude` 심볼릭 링크 위치 |
 | `KO_TRANSLATOR_BIN` | `scripts/translate-bin` | Swift 바이너리 경로 |
 
 ## 한계 및 알려진 이슈
