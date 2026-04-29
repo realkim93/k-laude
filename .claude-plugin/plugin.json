@@ -1,0 +1,10 @@
+{
+  "name": "k-laude",
+  "version": "0.2.0",
+  "description": "한글 프롬프트를 Apple FoundationModels(on-device LLM)로 영문 번역해 Claude Code에 보내 토큰을 ~2.5배 절약. macOS 26+ Apple Intelligence 사용.",
+  "author": {
+    "name": "realkim93"
+  },
+  "homepage": "https://github.com/realkim93/k-laude",
+  "keywords": ["korean", "translation", "tokens", "macos", "apple-intelligence", "foundation-models", "on-device"]
+}
