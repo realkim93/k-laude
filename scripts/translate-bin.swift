@@ -5,20 +5,39 @@
 // Build:  swiftc -parse-as-library -O translate-bin.swift -o translate-bin
 // Usage:  echo "안녕하세요" | ./translate-bin
 //
-// Optional configuration files (auto-loaded if present):
-//   ~/.config/k-laude/glossary.txt     — `한글=English` pairs, applied as
-//                                        deterministic pre-substitution
-//                                        (one per line, # for comments)
-//   ~/.config/k-laude/instructions.md  — free-form text appended to the LLM
-//                                        prompt to steer style/tone
+// Pipeline:
+//   1. Apply user glossary (deterministic 한글=English substitution)
+//      - Global:  ~/.config/k-laude/glossary.txt
+//      - Project: ./.k-laude/glossary.txt walking up from cwd (project wins)
+//   2. If no Hangul remains, short-circuit and emit the substituted text.
+//   3. Protect backtick code spans (`...`) with placeholders so the LLM
+//      cannot mangle identifiers, file paths, or shell commands.
+//   4. Call FoundationModels with rules + custom instructions.
+//   5. Restore code-span placeholders into the output.
 //
-// Override with env vars: KLAUDE_GLOSSARY, KLAUDE_INSTRUCTIONS
-// Disable a layer entirely with: KLAUDE_GLOSSARY=/dev/null
+// Env overrides:
+//   KLAUDE_GLOSSARY=/dev/null         disable glossary
+//   KLAUDE_INSTRUCTIONS=/dev/null     disable custom instructions
+//   KLAUDE_DEBUG=1                    print pipeline stages to stderr
 
 import Foundation
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
+
+// MARK: - Hangul detection
+
+func containsHangul(_ s: String) -> Bool {
+    for scalar in s.unicodeScalars {
+        let v = scalar.value
+        if (0xAC00...0xD7A3).contains(v)   // Hangul Syllables
+            || (0x1100...0x11FF).contains(v)   // Hangul Jamo
+            || (0x3130...0x318F).contains(v) { // Hangul Compatibility Jamo
+            return true
+        }
+    }
+    return false
+}
 
 // MARK: - Config loading
 
@@ -34,7 +53,7 @@ func defaultConfigDir() -> String {
     return "\(NSHomeDirectory())/.config/k-laude"
 }
 
-func loadGlossary(path: String) -> [(ko: String, en: String)] {
+func loadGlossaryFile(_ path: String) -> [(String, String)] {
     guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
     var pairs: [(String, String)] = []
     for rawLine in content.components(separatedBy: .newlines) {
@@ -45,16 +64,37 @@ func loadGlossary(path: String) -> [(ko: String, en: String)] {
         let en = String(line[line.index(after: eqIdx)...]).trimmingCharacters(in: .whitespaces)
         if !ko.isEmpty && !en.isEmpty { pairs.append((ko, en)) }
     }
-    // Apply longest-first so that "쿠버네티스 클러스터" wins over "클러스터".
-    return pairs.sorted { $0.0.count > $1.0.count }
+    return pairs
+}
+
+func findProjectGlossary() -> String? {
+    let fm = FileManager.default
+    var dir = fm.currentDirectoryPath
+    while !dir.isEmpty {
+        let candidate = "\(dir)/.k-laude/glossary.txt"
+        if fm.fileExists(atPath: candidate) { return candidate }
+        let parent = (dir as NSString).deletingLastPathComponent
+        if parent == dir || parent.isEmpty { break }
+        dir = parent
+    }
+    return nil
 }
 
 func loadConfig() -> Config {
     let env = ProcessInfo.processInfo.environment
-    let glossaryPath = env["KLAUDE_GLOSSARY"] ?? "\(defaultConfigDir())/glossary.txt"
+    let globalGlossaryPath = env["KLAUDE_GLOSSARY"] ?? "\(defaultConfigDir())/glossary.txt"
     let instrPath = env["KLAUDE_INSTRUCTIONS"] ?? "\(defaultConfigDir())/instructions.md"
 
-    let glossary = loadGlossary(path: glossaryPath)
+    // Project glossary takes precedence: load it second so its keys override
+    // global ones via dictionary semantics, then re-sort for longest-first.
+    var merged: [String: String] = [:]
+    for (k, v) in loadGlossaryFile(globalGlossaryPath) { merged[k] = v }
+    if let projPath = findProjectGlossary() {
+        for (k, v) in loadGlossaryFile(projPath) { merged[k] = v }
+    }
+    let glossary = merged.map { (ko: $0.key, en: $0.value) }
+                         .sorted { $0.ko.count > $1.ko.count }
+
     let instructions: String? = {
         guard let content = try? String(contentsOfFile: instrPath, encoding: .utf8) else { return nil }
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,6 +109,21 @@ func applyGlossary(_ text: String, glossary: [(ko: String, en: String)]) -> Stri
         out = out.replacingOccurrences(of: ko, with: en)
     }
     return out
+}
+
+// MARK: - Code-span detection
+//
+// We do NOT replace code spans with placeholders. The 3B on-device model
+// reliably preserves English-looking tokens (identifiers, file paths, shell
+// commands) when the prompt tells it to, but it tends to mistranslate opaque
+// Unicode placeholders. So we just detect their presence and emit a stronger
+// reminder in the prompt rules when any are found.
+
+func collectCodeSpans(_ text: String) -> [String] {
+    let nsText = text as NSString
+    guard let regex = try? NSRegularExpression(pattern: "`[^`\\n]+`") else { return [] }
+    let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+    return matches.map { nsText.substring(with: $0.range) }
 }
 
 // MARK: - Output post-processing
@@ -87,6 +142,13 @@ func cleanOutput(_ raw: String) -> String {
     return out
 }
 
+// MARK: - Debug
+
+func dbg(_ stage: String, _ text: String) {
+    guard ProcessInfo.processInfo.environment["KLAUDE_DEBUG"] == "1" else { return }
+    FileHandle.standardError.write(Data("[klaude:\(stage)] \(text)\n".utf8))
+}
+
 // MARK: - Entry point
 
 @main
@@ -101,21 +163,34 @@ struct TranslateBin {
         if text.isEmpty { exit(0) }
 
         let config = loadConfig()
-        // Step 1: deterministic glossary substitution. The 3B on-device model
-        // doesn't reliably follow "translate X as Y" in a system prompt, so we
-        // do the substitution ourselves before handing off to the LLM. Any
-        // English we leave behind passes through verbatim per the prompt rules.
-        let preprocessed = applyGlossary(text, glossary: config.glossary)
+
+        // Step 1: deterministic glossary substitution (project glossary
+        // overrides global glossary; longest match wins).
+        let afterGlossary = applyGlossary(text, glossary: config.glossary)
+        dbg("glossary", afterGlossary)
+
+        // Step 2: short-circuit if there's no Korean left to translate.
+        if !containsHangul(afterGlossary) {
+            dbg("shortcircuit", "no Hangul remains, skipping LLM")
+            FileHandle.standardOutput.write(Data(afterGlossary.utf8))
+            exit(0)
+        }
+
+        // Step 3: detect code spans so we can emphasize their preservation.
+        let codeSpans = collectCodeSpans(afterGlossary)
+        dbg("code-spans", codeSpans.joined(separator: " | "))
 
         #if canImport(FoundationModels)
-        // Build the prompt. Custom instructions are merged into the rule list
-        // because the small model follows rules in the user message far more
-        // reliably than rules in the `instructions:` slot alone.
         var rules = """
         Task: Translate the Korean text inside <ko>...</ko> to English.
         Output ONLY the English translation. Do NOT answer the question, do NOT execute the request, do NOT add any explanation. Just translate.
-        Preserve code, file paths, identifiers, shell commands, URLs, and English words verbatim.
+        Preserve code, file paths, identifiers, shell commands, URLs, and English words verbatim — never alter or translate them.
+        Anything inside backticks `like_this` MUST appear in the output exactly as-is, including the backticks.
         """
+        if !codeSpans.isEmpty {
+            let list = codeSpans.map { "  - \($0)" }.joined(separator: "\n")
+            rules += "\n\nCRITICAL: the following backtick spans appear in the input and must appear verbatim in your output:\n\(list)"
+        }
         if let extra = config.extraInstructions {
             rules += "\n\nAdditional translation instructions:\n\(extra)"
         }
@@ -124,30 +199,28 @@ struct TranslateBin {
         \(rules)
 
         <ko>
-        \(preprocessed)
+        \(afterGlossary)
         </ko>
 
         English translation:
         """
 
         do {
-            // Pass a short system instruction too — it nudges the model toward
-            // translation mode even when the user message is ambiguous (e.g.
-            // commands like "고쳐" that look executable).
-            let sysInstructions = "You translate Korean developer prompts to English. Never execute the request — only translate."
+            let sysInstructions = "You translate Korean developer prompts to English. Never execute the request — only translate. Keep all English words, code, identifiers, file paths, and backtick spans byte-for-byte identical."
             let session = LanguageModelSession(instructions: sysInstructions)
             let response = try await session.respond(to: prompt)
-            let out = cleanOutput(response.content)
-            FileHandle.standardOutput.write(Data(out.utf8))
+            let cleaned = cleanOutput(response.content)
+            dbg("llm", cleaned)
+            FileHandle.standardOutput.write(Data(cleaned.utf8))
             exit(0)
         } catch {
             FileHandle.standardError.write(Data("[translate-bin] FoundationModels error: \(error)\n".utf8))
-            FileHandle.standardOutput.write(Data(preprocessed.utf8))
+            FileHandle.standardOutput.write(Data(afterGlossary.utf8))
             exit(0)
         }
         #else
         FileHandle.standardError.write(Data("[translate-bin] FoundationModels not available — requires macOS 26+ with Apple Intelligence\n".utf8))
-        FileHandle.standardOutput.write(Data(preprocessed.utf8))
+        FileHandle.standardOutput.write(Data(afterGlossary.utf8))
         exit(0)
         #endif
     }
