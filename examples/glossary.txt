@@ -1,0 +1,65 @@
+# k-laude glossary
+# Format:  한글=English   (one per line, # for comments)
+# Copy to: ~/.config/k-laude/glossary.txt
+#
+# Terms are pre-substituted before the LLM sees the text — guaranteed exact match.
+# Longer phrases win over shorter ones (e.g. "쿠버네티스 클러스터" before "클러스터").
+
+# --- Cloud / Infra ---
+도커=Docker
+쿠버네티스=Kubernetes
+쿠버=Kubernetes
+파드=Pod
+디플로이먼트=Deployment
+헬름=Helm
+테라폼=Terraform
+앤서블=Ansible
+
+# --- Languages / Frameworks ---
+타입스크립트=TypeScript
+자바스크립트=JavaScript
+파이썬=Python
+리액트=React
+넥스트=Next.js
+넥스트JS=Next.js
+뷰=Vue
+스벨트=Svelte
+노드=Node.js
+스프링=Spring
+장고=Django
+
+# --- Databases ---
+포스트그레=PostgreSQL
+포스트그레SQL=PostgreSQL
+몽고=MongoDB
+레디스=Redis
+
+# --- AI / ML ---
+클로드=Claude
+지피티=GPT
+임베딩=embedding
+파인튜닝=fine-tuning
+프롬프트=prompt
+컨텍스트=context
+토큰=token
+에이전트=agent
+
+# --- General dev terms ---
+프론트=frontend
+프론트엔드=frontend
+백엔드=backend
+API=API
+SDK=SDK
+리팩토링=refactoring
+디버깅=debugging
+배포=deployment
+빌드=build
+린트=lint
+테스트=test
+머지=merge
+리베이스=rebase
+풀리퀘=pull request
+PR=PR
+이슈=issue
+브랜치=branch
+커밋=commit

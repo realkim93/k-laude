@@ -99,6 +99,53 @@ echo "안녕하세요, 코드 한 줄만 짜주세요" | ./scripts/translate.sh
 # → Hello, please provide one line of code.
 ```
 
+## 번역 커스터마이징
+
+3B 온디바이스 모델은 도메인 용어/고유어에서 약합니다. 두 층으로 보강합니다.
+
+### 글로서리 (직접 치환)
+
+`~/.config/k-laude/glossary.txt` 에 `한글=English` 매핑을 적어두면 LLM 호출 **전에** 결정적으로 치환합니다 (가장 신뢰도 높음).
+
+```
+도커=Docker
+쿠버네티스=Kubernetes
+리액트=React
+임베딩=embedding
+```
+
+긴 문구가 짧은 문구보다 우선 매칭됩니다 (예: `쿠버네티스 클러스터` → `클러스터` 보다 우선).
+
+샘플 글로서리는 `examples/glossary.txt` 에 있습니다:
+```bash
+mkdir -p ~/.config/k-laude
+cp examples/glossary.txt ~/.config/k-laude/glossary.txt
+```
+
+### 커스텀 인스트럭션
+
+`~/.config/k-laude/instructions.md` 에 자유 텍스트로 톤/스타일을 지시. LLM 프롬프트에 부착됩니다.
+
+```markdown
+- Use imperative tone for requests
+- Preserve identifiers and code verbatim
+- Do not add politeness padding
+```
+
+샘플은 `examples/instructions.md`.
+
+### 동작 비교
+
+```
+"도커 컨테이너 안에서 쿠버 파드 디버깅 좀 해줘"
+  → 글로서리 X:  "Debugging Kubernetes Pods in Docker..."  (운 좋게 맞음)
+  → 글로서리 O:  "Debugging Kubernetes Pods inside Docker containers." (보장됨)
+
+"이거 순서가 다르잖아 고쳐"
+  → instructions X: "This order is different, please fix it"
+  → instructions O: "This is different. Fix it."  (imperative + 패딩 제거)
+```
+
 ## 환경 변수
 
 | 변수 | 기본값 | 용도 |
@@ -108,6 +155,9 @@ echo "안녕하세요, 코드 한 줄만 짜주세요" | ./scripts/translate.sh
 | `KLAUDE_INPUT_WIDTH` | `30` | 왼쪽 입력 패인 너비 (%) |
 | `KLAUDE_BIN_DIR` | `~/.local/bin` | `klaude` 심볼릭 링크 위치 |
 | `KO_TRANSLATOR_BIN` | `scripts/translate-bin` | Swift 바이너리 경로 |
+| `KLAUDE_GLOSSARY` | `~/.config/k-laude/glossary.txt` | 글로서리 파일 경로 (`/dev/null` 로 비활성화) |
+| `KLAUDE_INSTRUCTIONS` | `~/.config/k-laude/instructions.md` | 커스텀 인스트럭션 파일 경로 |
+| `XDG_CONFIG_HOME` | `~/.config` | 설정 디렉토리 부모 (XDG 표준) |
 
 ## 한계 및 알려진 이슈
 
