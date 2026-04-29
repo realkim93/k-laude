@@ -47,6 +47,24 @@ REPL_FULL="$SCRIPT_DIR/kc-repl.py"
 TRANSLATE_BIN="$SCRIPT_DIR/translate-bin"
 SETUP_SH="$SCRIPT_DIR/setup-deps.sh"
 
+# --check: dry-run that verifies the install layout resolves correctly through
+# whatever path the user invoked klaude on (PATH symlink, alias, etc.). Catches
+# the SCRIPT_DIR-via-symlink class of bugs without spawning tmux/claude.
+if [[ "${1:-}" == "--check" ]]; then
+  printf '%-20s %s\n' "invoked-as:"     "${BASH_SOURCE[0]}"
+  printf '%-20s %s\n' "resolved-self:"  "$SELF"
+  printf '%-20s %s\n' "scripts-dir:"    "$SCRIPT_DIR"
+  status=0
+  for f in "$TRANSLATE_BIN" "$REPL_FULL" "$SETUP_SH"; do
+    if [[ -e "$f" ]]; then
+      printf '%-20s %s\n' "found:" "$f"
+    else
+      printf '%-20s %s\n' "MISSING:" "$f"; status=1
+    fi
+  done
+  exit $status
+fi
+
 if [[ ! -x "$TRANSLATE_BIN" || "$SCRIPT_DIR/translate-bin.swift" -nt "$TRANSLATE_BIN" ]]; then
   info "translate-bin 컴파일 중..."
   if [[ ! -f "$SETUP_SH" ]]; then

@@ -99,5 +99,14 @@ else
   info "Enable in: System Settings → Apple Intelligence & Siri"
 fi
 
+# Verify klaude resolves correctly through the installed symlink. This catches
+# the SCRIPT_DIR-via-symlink regression class without spawning tmux/claude.
+if [[ -L "$KLAUDE_LINK" ]] && "$KLAUDE_LINK" --check >/dev/null 2>&1; then
+  ok "klaude --check via symlink passes"
+elif [[ -L "$KLAUDE_LINK" ]]; then
+  warn "klaude --check via symlink failed — symlink resolution broken"
+  "$KLAUDE_LINK" --check 2>&1 | sed 's/^/    /'
+fi
+
 echo
 ok "Setup complete. Run: klaude"
